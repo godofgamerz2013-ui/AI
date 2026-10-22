@@ -17,7 +17,15 @@ APP_NAME = "Unified Multi-AI Gateway"
 API_KEY = os.getenv("GATEWAY_API_KEY", "")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "90"))
 MAX_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "4096"))
-app = FastAPI(title=APP_NAME, version="0.3.0", docs_url=None, redoc_url=None)
+FALLBACK_ORDER = [
+    item.strip().lower()
+    for item in os.getenv(
+        "PROVIDER_FALLBACK_ORDER",
+        "openai,google,deepseek,anthropic,openrouter,localai",
+    ).split(",")
+    if item.strip()
+]
+app = FastAPI(title=APP_NAME, version="0.4.0", docs_url=None, redoc_url=None)
 CORS_ORIGINS = [x.strip() for x in os.getenv("CORS_ORIGINS", "https://godofgamerz2013-ui.github.io").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "X-Request-ID"])
 
@@ -36,8 +44,9 @@ class ChatRequest(BaseModel):
     provider: str | None = None
 
 
+# Official provider APIs, browser adapters, and LocalAI are separate backends.
+# LocalAI speaks the OpenAI-compatible API and must run on a persistent host.
 PROVIDERS = {
-    # Official/server API integrations.
     "openai": {
         "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "key_env": "OPENAI_API_KEY", "models_env": "OPENAI_MODELS",
@@ -48,11 +57,27 @@ PROVIDERS = {
         "key_env": "GOOGLE_API_KEY", "models_env": "GOOGLE_MODELS",
         "default_models": ["gemini-2.5-flash"], "mode": "openai",
     },
+    "deepseek": {
+        "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        "key_env": "DEEPSEEK_API_KEY", "models_env": "DEEPSEEK_MODELS",
+        "default_models": ["deepseek-chat"], "mode": "openai",
+    },
+    "anthropic": {
+        "base_url": os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"),
+        "key_env": "ANTHROPIC_API_KEY", "models_env": "ANTHROPIC_MODELS",
+        "default_models": ["claude-3-5-haiku-latest"], "mode": "anthropic",
+    },
     "openrouter": {
         "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "key_env": "OPENROUTER_API_KEY", "models_env": "OPENROUTER_MODELS",
         "default_models": ["openrouter/auto"], "mode": "openai",
     },
+    "localai": {
+        "base_url": os.getenv("LOCALAI_BASE_URL", "http://127.0.0.1:8080/v1"),
+        "key_env": "LOCALAI_API_KEY", "models_env": "LOCALAI_MODELS",
+        "default_models": ["llama-3.2-1b-instruct"], "mode": "openai",
+    },
+    # Additional supported API providers can be added without changing the fallback engine.
     "groq": {
         "base_url": os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
         "key_env": "GROQ_API_KEY", "models_env": "GROQ_MODELS",
@@ -68,12 +93,7 @@ PROVIDERS = {
         "key_env": "MISTRAL_API_KEY", "models_env": "MISTRAL_MODELS",
         "default_models": ["mistral-small-latest"], "mode": "openai",
     },
-    "anthropic": {
-        "base_url": os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"),
-        "key_env": "ANTHROPIC_API_KEY", "models_env": "ANTHROPIC_MODELS",
-        "default_models": ["claude-3-5-haiku-latest"], "mode": "anthropic",
-    },
-    # Optional website GUI adapters. They require a user-signed-in browser over private CDP.
+    # Optional website GUI adapters require a user-signed-in browser via private CDP.
     "chatgpt_gui": {
         "key_env": "CHATGPT_GUI_CDP_URL", "models_env": "CHATGPT_GUI_MODELS",
         "default_models": ["chatgpt-web"], "mode": "gui",
@@ -94,6 +114,10 @@ def configured_providers() -> list[dict[str, Any]]:
     for name, cfg in PROVIDERS.items():
         if not os.getenv(cfg["key_env"], "").strip():
             continue
+        # LocalAI can be configured without an API key on private deployments.
+        if name == "localai" and not os.getenv("LOCALAI_API_KEY", "").strip():
+            if not os.getenv("LOCALAI_BASE_URL", "").strip():
+                continue
         models = [s.strip() for s in os.getenv(cfg["models_env"], "").split(",") if s.strip()]
         out.append({**cfg, "name": name, "models": models or cfg["default_models"]})
     return out
@@ -106,13 +130,24 @@ def authenticate(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Invalid bearer token.")
 
 
+def provider_priority(provider: dict[str, Any]) -> tuple[int, str]:
+    name = provider["name"]
+    # GUI session adapters are not silently substituted for API backends.
+    if name.endswith("_gui"):
+        return (len(FALLBACK_ORDER) + 100, name)
+    try:
+        return (FALLBACK_ORDER.index(name), name)
+    except ValueError:
+        return (len(FALLBACK_ORDER) + 10, name)
+
+
 def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
     providers = configured_providers()
     if not providers:
-        raise HTTPException(status_code=503, detail="No providers configured; set at least one API key or GUI CDP endpoint.")
+        raise HTTPException(status_code=503, detail="No providers configured; set API keys, LOCALAI_BASE_URL, or a GUI CDP endpoint.")
     provider_name, model = req.provider, req.model.strip()
     if not model or model == "auto":
-        raise HTTPException(status_code=400, detail="Select an explicit model ID. Automatic model selection is disabled.")
+        raise HTTPException(status_code=400, detail="Select an explicit model ID from GET /v1/models.")
     if not provider_name and "/" in model:
         prefix, remainder = model.split("/", 1)
         if prefix in PROVIDERS:
@@ -124,19 +159,24 @@ def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
         selected_provider = next((p for p in providers if model in p["models"]), None)
     if selected_provider is None or model not in selected_provider["models"]:
         raise HTTPException(status_code=400, detail="Unknown model. Choose an exact model ID from GET /v1/models.")
-    # The selected model is always attempted first. Only after a quota/transient failure
-    # do we try other configured providers, using their first configured model.
+    # Preserve the user's selection first, then continue down the explicit fallback order.
+    ordered = sorted(providers, key=provider_priority)
     candidates = [(selected_provider, model)]
-    for provider in providers:
+    for provider in ordered:
         if provider["name"] != selected_provider["name"]:
             candidates.append((provider, provider["models"][0]))
     return candidates
+
 
 def can_fail_over(status: int, body: str) -> bool:
     if status in (408, 429, 500, 502, 503, 504):
         return True
     lower = body.lower()
-    quota_terms = ("quota", "rate limit", "rate_limit", "insufficient_quota", "billing hard limit", "credits exhausted")
+    quota_terms = (
+        "quota", "rate limit", "rate_limit", "insufficient_quota",
+        "billing hard limit", "credits exhausted", "payment required",
+        "insufficient credits", "out of credits", "billing",
+    )
     return status in (400, 402, 403) and any(term in lower for term in quota_terms)
 
 
@@ -151,11 +191,7 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": answer},
-                    "finish_reason": "stop",
-                }],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
             }, answer[:3000]
         except GUIAdapterError as exc:
             return 503, None, str(exc)
@@ -179,7 +215,8 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
         url = provider["base_url"].rstrip("/") + "/messages"
     else:
         body = {**payload, "model": model, "stream": False}
-        headers["Authorization"] = f"Bearer {key}"
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         url = provider["base_url"].rstrip("/") + "/chat/completions"
         if provider["name"] == "openrouter":
             referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
@@ -214,13 +251,13 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": APP_NAME, "version": "0.3.0"}
+    return {"ok": True, "service": APP_NAME, "version": "0.4.0"}
 
 
 @app.get("/v1/models", dependencies=[Depends(authenticate)])
 async def list_models():
     data = [{"id": f'{p["name"]}/{model}', "object": "model", "owned_by": p["name"]}
-            for p in configured_providers() for model in p["models"]]
+            for p in sorted(configured_providers(), key=provider_priority) for model in p["models"]]
     return {"object": "list", "data": data}
 
 
