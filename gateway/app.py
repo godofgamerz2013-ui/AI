@@ -110,28 +110,27 @@ def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
     providers = configured_providers()
     if not providers:
         raise HTTPException(status_code=503, detail="No providers configured; set at least one API key or GUI CDP endpoint.")
-    provider_name, model = req.provider, req.model or "auto"
+    provider_name, model = req.provider, req.model.strip()
+    if not model or model == "auto":
+        raise HTTPException(status_code=400, detail="Select an explicit model ID. Automatic model selection is disabled.")
     if not provider_name and "/" in model:
         prefix, remainder = model.split("/", 1)
         if prefix in PROVIDERS:
             provider_name, model = prefix, remainder
-    if provider_name:
-        providers = [p for p in providers if p["name"] == provider_name]
-        if not providers:
-            raise HTTPException(status_code=400, detail=f"Provider '{provider_name}' is not configured.")
-    candidates = []
+    selected_provider = next((p for p in providers if p["name"] == provider_name), None) if provider_name else None
+    if provider_name and selected_provider is None:
+        raise HTTPException(status_code=400, detail=f"Provider '{provider_name}' is not configured.")
+    if selected_provider is None:
+        selected_provider = next((p for p in providers if model in p["models"]), None)
+    if selected_provider is None or model not in selected_provider["models"]:
+        raise HTTPException(status_code=400, detail="Unknown model. Choose an exact model ID from GET /v1/models.")
+    # The selected model is always attempted first. Only after a quota/transient failure
+    # do we try other configured providers, using their first configured model.
+    candidates = [(selected_provider, model)]
     for provider in providers:
-        if model == "auto":
-            selected = provider["models"][0]
-        elif provider_name or model in provider["models"]:
-            selected = model
-        else:
-            continue
-        candidates.append((provider, selected))
-    if not candidates:
-        raise HTTPException(status_code=400, detail="Unknown model. Use 'auto', 'provider/model', or configure provider model lists.")
+        if provider["name"] != selected_provider["name"]:
+            candidates.append((provider, provider["models"][0]))
     return candidates
-
 
 def can_fail_over(status: int, body: str) -> bool:
     if status in (408, 429, 500, 502, 503, 504):
