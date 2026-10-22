@@ -43,9 +43,9 @@ jobs:
         with:
           context: ./omniroute
           build-args: |
-            OMNIROUTE_USE_TURBOPACK=1
+            OMNIROUTE_USE_TURBOPACK=0
             OMNIROUTE_BUILD_MEMORY_MB=6144
-            OMNIROUTE_BUILD_WORKERS=2
+            OMNIROUTE_BUILD_WORKERS=1
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/omniroute:latest
           cache-from: type=gha
