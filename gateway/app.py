@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .gui_adapter import GUIAdapterError, complete_via_gui
@@ -16,7 +17,9 @@ APP_NAME = "Unified Multi-AI Gateway"
 API_KEY = os.getenv("GATEWAY_API_KEY", "")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "90"))
 MAX_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "4096"))
-app = FastAPI(title=APP_NAME, version="0.2.0", docs_url=None, redoc_url=None)
+app = FastAPI(title=APP_NAME, version="0.3.0", docs_url=None, redoc_url=None)
+CORS_ORIGINS = [x.strip() for x in os.getenv("CORS_ORIGINS", "https://godofgamerz2013-ui.github.io").split(",") if x.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "X-Request-ID"])
 
 
 class Message(BaseModel):
@@ -25,7 +28,7 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    model: str = "auto"
+    model: str
     messages: list[Message]
     temperature: float | None = Field(default=0.7, ge=0, le=2)
     max_tokens: int | None = Field(default=1024, ge=1, le=MAX_TOKENS)
@@ -212,14 +215,13 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": APP_NAME, "version": "0.2.0"}
+    return {"ok": True, "service": APP_NAME, "version": "0.3.0"}
 
 
 @app.get("/v1/models", dependencies=[Depends(authenticate)])
 async def list_models():
     data = [{"id": f'{p["name"]}/{model}', "object": "model", "owned_by": p["name"]}
             for p in configured_providers() for model in p["models"]]
-    data.append({"id": "auto", "object": "model", "owned_by": "gateway"})
     return {"object": "list", "data": data}
 
 
