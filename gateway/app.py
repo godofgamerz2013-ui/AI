@@ -112,12 +112,14 @@ PROVIDERS = {
 def configured_providers() -> list[dict[str, Any]]:
     out = []
     for name, cfg in PROVIDERS.items():
-        if not os.getenv(cfg["key_env"], "").strip():
-            continue
-        # LocalAI can be configured without an API key on private deployments.
-        if name == "localai" and not os.getenv("LOCALAI_API_KEY", "").strip():
+        configured_key = bool(os.getenv(cfg["key_env"], "").strip())
+        # LocalAI may run without an API key on a private network, but it must
+        # have an explicit reachable base URL to be considered configured.
+        if name == "localai":
             if not os.getenv("LOCALAI_BASE_URL", "").strip():
                 continue
+        elif not configured_key:
+            continue
         models = [s.strip() for s in os.getenv(cfg["models_env"], "").split(",") if s.strip()]
         out.append({**cfg, "name": name, "models": models or cfg["default_models"]})
     return out
@@ -146,8 +148,15 @@ def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
     if not providers:
         raise HTTPException(status_code=503, detail="No providers configured; set API keys, LOCALAI_BASE_URL, or a GUI CDP endpoint.")
     provider_name, model = req.provider, req.model.strip()
-    if not model or model == "auto":
-        raise HTTPException(status_code=400, detail="Select an explicit model ID from GET /v1/models.")
+    ordered = sorted(providers, key=provider_priority)
+    # "auto" is the explicit gateway-managed route: GPT -> Gemini -> DeepSeek ->
+    # Claude -> OpenRouter -> LocalAI by default, skipping unconfigured providers.
+    if model == "auto":
+        if provider_name not in (None, "", "gateway", "auto"):
+            raise HTTPException(status_code=400, detail="Use model='auto' without a provider to enable ordered fallback.")
+        return [(provider, provider["models"][0]) for provider in ordered]
+    if not model:
+        raise HTTPException(status_code=400, detail="Select a model ID from GET /v1/models.")
     if not provider_name and "/" in model:
         prefix, remainder = model.split("/", 1)
         if prefix in PROVIDERS:
@@ -159,8 +168,7 @@ def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
         selected_provider = next((p for p in providers if model in p["models"]), None)
     if selected_provider is None or model not in selected_provider["models"]:
         raise HTTPException(status_code=400, detail="Unknown model. Choose an exact model ID from GET /v1/models.")
-    # Preserve the user's selection first, then continue down the explicit fallback order.
-    ordered = sorted(providers, key=provider_priority)
+    # Explicit model selection begins with that provider, then falls back in priority order.
     candidates = [(selected_provider, model)]
     for provider in ordered:
         if provider["name"] != selected_provider["name"]:
@@ -172,12 +180,16 @@ def can_fail_over(status: int, body: str) -> bool:
     if status in (408, 429, 500, 502, 503, 504):
         return True
     lower = body.lower()
+    # Provider/model-not-found and invalid request errors should fail over too:
+    # a Gemini/OpenRouter model may not exist even though another backend can work.
     quota_terms = (
         "quota", "rate limit", "rate_limit", "insufficient_quota",
         "billing hard limit", "credits exhausted", "payment required",
         "insufficient credits", "out of credits", "billing",
+        "model not found", "model_not_found", "unknown model",
+        "not found", "unsupported model", "does not exist",
     )
-    return status in (400, 402, 403) and any(term in lower for term in quota_terms)
+    return status in (400, 402, 403, 404) and any(term in lower for term in quota_terms)
 
 
 async def call_provider(provider: dict[str, Any], model: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str]:
@@ -256,8 +268,11 @@ async def health():
 
 @app.get("/v1/models", dependencies=[Depends(authenticate)])
 async def list_models():
-    data = [{"id": f'{p["name"]}/{model}', "object": "model", "owned_by": p["name"]}
-            for p in sorted(configured_providers(), key=provider_priority) for model in p["models"]]
+    providers = sorted(configured_providers(), key=provider_priority)
+    # Include an explicit auto-route that walks the configured priority chain.
+    data = [{"id": "auto", "object": "model", "owned_by": "gateway"}]
+    data.extend({"id": f'{p["name"]}/{model}', "object": "model", "owned_by": p["name"]}
+                for p in providers for model in p["models"])
     return {"object": "list", "data": data}
 
 
