@@ -52,7 +52,7 @@ def test_auto_falls_back_after_quota(monkeypatch):
         response = client.post(
             "/v1/chat/completions",
             headers={"Authorization": "Bearer test-gateway-key"},
-            json={"model": "auto", "messages": [{"role": "user", "content": "hello"}], "stream": False},
+            json={"model": "openai/model-a", "messages": [{"role": "user", "content": "hello"}], "stream": False},
         )
     assert response.status_code == 200, response.text
     assert calls == [("openai", "model-a"), ("google", "model-b")]
