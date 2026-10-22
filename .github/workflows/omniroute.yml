@@ -1,0 +1,54 @@
+name: OmniRoute - validate and publish container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/omniroute.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: omniroute-publish
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout OmniRoute (upstream)
+        uses: actions/checkout@v4
+        with:
+          repository: cheaper-inference/OmniRoute
+          ref: main
+          path: omniroute
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish OmniRoute image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./omniroute
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/omniroute:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Explain runtime hosting
+        run: |
+          echo "OmniRoute container published."
+          echo "GitHub Actions only builds/publishes this image; it does not host a persistent 24/7 server."
+          echo "Run the image on a persistent container host and mount /app/data for durable SQLite state."
