@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>Unified AI Gateway · Playground</title>
+<title>Unified Multi-AI Gateway · Dashboard</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#eef2ff;background:#090d18;--panel:#111827;--line:#283449;--muted:#9caec7;--accent:#8b9cff;--green:#72e0b0;--red:#ff8b9b}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#1b2851 0,transparent 42%),#090d18;min-height:100vh}
@@ -34,18 +34,18 @@ a{color:#aab8ff}.tiny{font-size:11px;color:var(--muted)}.inline{display:flex;ali
 <body>
 <main>
   <header class="top">
-    <div><h1>Unified AI <span style="color:var(--accent)">Playground</span></h1><div class="sub">Choose the exact AI model you want. Test your gateway from the browser.</div></div>
-    <div class="pill">OPENAI-COMPATIBLE TESTER</div>
+    <div><h1>Unified AI <span style="color:var(--accent)">Gateway</span></h1><div class="sub">One control panel for your OpenAI-compatible gateway. Check health, load available models, and test chat requests.</div></div>
+    <div class="pill">GATEWAY DASHBOARD</div>
   </header>
-  <div class="notice"><b>Important:</b> this is a static web tester hosted by GitHub Pages. It calls your separately running gateway URL; GitHub Actions is not an always-on API server. Use HTTPS for the gateway and never expose a browser CDP port publicly. Your gateway key stays in this page's memory and is not saved.</div>
+  <div class="notice"><b>Connection status:</b> this dashboard is hosted separately from the API. The gateway health endpoint may work before chat is configured. Chat requires a valid gateway key and at least one configured provider or browser adapter. Your gateway key stays in this page's memory and is not saved.</div>
   <div class="layout">
     <aside class="panel">
       <h2>Connection & model</h2>
-      <div class="field"><label for="endpoint">GATEWAY BASE URL</label><input id="endpoint" type="url" placeholder="https://your-gateway.example.com/v1" autocomplete="url"><div class="help">Enter the base URL ending in <code>/v1</code>. Example: <code>https://host.example/v1</code>.</div></div>
+      <div class="field"><label for="endpoint">GATEWAY BASE URL</label><input id="endpoint" type="url" value="https://omniroute-gateway-two.vercel.app/v1" placeholder="https://your-gateway.example.com/v1" autocomplete="url"><div class="help">Pre-filled with your current Vercel gateway. Enter the base URL ending in <code>/v1</code> if you move the backend.</div></div>
       <div class="field"><label for="apikey">GATEWAY API KEY</label><input id="apikey" type="password" placeholder="Your GATEWAY_API_KEY" autocomplete="off"><div class="help">Held in page memory only. Do not use this tester on a shared computer.</div></div>
       <div class="field"><label for="model">SELECT MODEL — REQUIRED</label><select id="model"><option value="">Connect and load models first…</option></select><div class="help">No automatic model choice. Select the exact provider/model. If that provider hits a recognized quota error, the gateway may try another configured provider.</div></div>
       <div class="actions"><button id="load" type="button">Connect & load models</button><button id="health" class="secondary" type="button">Test health</button></div>
-      <div id="connStatus" class="status" role="status">Not connected. Enter your gateway URL and key, then load models.</div>
+      <div id="connStatus" class="status" role="status">Gateway URL pre-filled. Click “Test health” first; model loading needs a gateway key.</div>
       <div class="foot">Routes used: <code>GET /v1/models</code>, <code>GET /health</code>, <code>POST /v1/chat/completions</code>. A gateway needs CORS enabled for this Pages origin.</div>
     </aside>
     <section class="panel chat">
@@ -57,7 +57,7 @@ a{color:#aab8ff}.tiny{font-size:11px;color:var(--muted)}.inline{display:flex;ali
       </form>
     </section>
   </div>
-  <div class="foot">Project: <a href="https://github.com/godofgamerz2013-ui/AI" target="_blank" rel="noreferrer">godofgamerz2013-ui/AI</a> · <a href="https://github.com/godofgamerz2013-ui/AI/actions" target="_blank" rel="noreferrer">GitHub Actions</a> · This page does not proxy requests or store chat history.</div>
+  <div class="foot">Project: <a href="https://github.com/godofgamerz2013-ui/AI" target="_blank" rel="noreferrer">godofgamerz2013-ui/AI</a> · <a href="https://github.com/godofgamerz2013-ui/AI/actions" target="_blank" rel="noreferrer">GitHub Actions</a> · Dashboard requests go directly to your configured gateway; chat history is not saved.</div>
 </main>
 <script>
 (() => {
