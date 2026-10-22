@@ -10,11 +10,13 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .gui_adapter import GUIAdapterError, complete_via_gui
+
 APP_NAME = "Unified Multi-AI Gateway"
 API_KEY = os.getenv("GATEWAY_API_KEY", "")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "90"))
 MAX_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "4096"))
-app = FastAPI(title=APP_NAME, version="0.1.0", docs_url=None, redoc_url=None)
+app = FastAPI(title=APP_NAME, version="0.2.0", docs_url=None, redoc_url=None)
 
 
 class Message(BaseModel):
@@ -32,6 +34,7 @@ class ChatRequest(BaseModel):
 
 
 PROVIDERS = {
+    # Official/server API integrations.
     "openai": {
         "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         "key_env": "OPENAI_API_KEY", "models_env": "OPENAI_MODELS",
@@ -67,6 +70,19 @@ PROVIDERS = {
         "key_env": "ANTHROPIC_API_KEY", "models_env": "ANTHROPIC_MODELS",
         "default_models": ["claude-3-5-haiku-latest"], "mode": "anthropic",
     },
+    # Optional website GUI adapters. They require a user-signed-in browser over private CDP.
+    "chatgpt_gui": {
+        "key_env": "CHATGPT_GUI_CDP_URL", "models_env": "CHATGPT_GUI_MODELS",
+        "default_models": ["chatgpt-web"], "mode": "gui",
+    },
+    "claude_gui": {
+        "key_env": "CLAUDE_GUI_CDP_URL", "models_env": "CLAUDE_GUI_MODELS",
+        "default_models": ["claude-web"], "mode": "gui",
+    },
+    "gemini_gui": {
+        "key_env": "GEMINI_GUI_CDP_URL", "models_env": "GEMINI_GUI_MODELS",
+        "default_models": ["gemini-web"], "mode": "gui",
+    },
 }
 
 
@@ -90,7 +106,7 @@ def authenticate(authorization: str | None = Header(default=None)) -> None:
 def candidate_models(req: ChatRequest) -> list[tuple[dict[str, Any], str]]:
     providers = configured_providers()
     if not providers:
-        raise HTTPException(status_code=503, detail="No providers configured; set at least one provider API key.")
+        raise HTTPException(status_code=503, detail="No providers configured; set at least one API key or GUI CDP endpoint.")
     provider_name, model = req.provider, req.model or "auto"
     if not provider_name and "/" in model:
         prefix, remainder = model.split("/", 1)
@@ -123,6 +139,25 @@ def can_fail_over(status: int, body: str) -> bool:
 
 
 async def call_provider(provider: dict[str, Any], model: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str]:
+    if provider["mode"] == "gui":
+        try:
+            answer, quota_seen = await complete_via_gui(provider["name"], payload["messages"])
+            if quota_seen:
+                return 429, None, answer[:3000]
+            return 200, {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": answer},
+                    "finish_reason": "stop",
+                }],
+            }, answer[:3000]
+        except GUIAdapterError as exc:
+            return 503, None, str(exc)
+
     key = os.getenv(provider["key_env"], "").strip()
     headers = {"Content-Type": "application/json"}
     if provider["mode"] == "anthropic":
@@ -177,7 +212,7 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": APP_NAME, "version": "0.1.0"}
+    return {"ok": True, "service": APP_NAME, "version": "0.2.0"}
 
 
 @app.get("/v1/models", dependencies=[Depends(authenticate)])
@@ -213,7 +248,7 @@ async def chat_completions(req: ChatRequest, request: Request):
         safe_status = status if status in (400, 401, 403, 404, 429) else 502
         raise HTTPException(status_code=safe_status, detail={
             "error": "provider_request_failed",
-            "message": "Provider failed. Check provider configuration, model and quota in host logs.",
+            "message": "Provider failed. Check provider configuration, model and quota/browser session state.",
             "attempts": attempts,
         })
     raise HTTPException(status_code=502, detail="All configured providers failed.")
@@ -222,4 +257,4 @@ async def chat_completions(req: ChatRequest, request: Request):
 @app.get("/")
 async def root():
     return {"name": APP_NAME, "health": "/health", "openai_compatible_endpoint": "/v1/chat/completions",
-            "models": "/v1/models", "note": "Configured provider APIs only; no website GUI scraping."}
+            "models": "/v1/models", "note": "API adapters and optional user-controlled GUI browser adapters; no website scraping or private endpoint replay."}
