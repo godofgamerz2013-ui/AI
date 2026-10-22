@@ -1,6 +1,6 @@
-# Optional single-host stack: gateway + LocalAI.
-# Copy .env.localai.example to .env.localai and fill in secrets/model IDs.
-# Keep LocalAI bound to the private Docker network; do not publish port 8080.
+# Persistent single-host stack: gateway + LocalAI.
+# Copy .env.localai.example to .env.localai, add real cloud API keys and replace secrets.
+# Launch with: docker compose --env-file .env.localai -f docker-compose.localai.yml up -d
 services:
   localai:
     image: localai/localai:latest
@@ -8,18 +8,26 @@ services:
     restart: unless-stopped
     environment:
       MODELS_PATH: /models
+      LOCALAI_API_KEY: ${LOCALAI_API_KEY:?Set LOCALAI_API_KEY in .env.localai}
       THREADS: ${LOCALAI_THREADS:-4}
       CONTEXT_SIZE: ${LOCALAI_CONTEXT_SIZE:-4096}
+      LOCALAI_VRAM_WARM_LIMIT: "0"
     volumes:
       - localai-models:/models
+      - localai-backends:/backends
+      - localai-config:/configuration
+      - localai-data:/data
     expose:
       - "8080"
+    # LocalAI downloads/configures this gallery model on first start.
+    # For machines with less RAM, choose a smaller model from the LocalAI gallery.
+    command: ["qwen3-4b"]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/readyz >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/readyz >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 30m
 
   gateway:
     build: .
@@ -29,10 +37,11 @@ services:
       - .env.localai
     environment:
       LOCALAI_BASE_URL: http://localai:8080/v1
-      PROVIDER_FALLBACK_ORDER: openai,google,deepseek,anthropic,openrouter,localai
-      PORT: "8080"
+      LOCALAI_MODELS: ${LOCALAI_MODELS:-qwen3-4b}
+      PROVIDER_FALLBACK_ORDER: ${PROVIDER_FALLBACK_ORDER:-openai,google,deepseek,anthropic,openrouter,localai}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081}
     ports:
-      # Gateway public API on host port 8081; put HTTPS/reverse proxy in front.
+      # Bind locally; use a TLS reverse proxy or VPN when remote clients need access.
       - "127.0.0.1:8081:8080"
     depends_on:
       localai:
@@ -40,3 +49,6 @@ services:
 
 volumes:
   localai-models:
+  localai-backends:
+  localai-config:
+  localai-data:
