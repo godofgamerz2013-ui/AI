@@ -263,7 +263,7 @@ async def call_provider(provider: dict[str, Any], model: str, payload: dict[str,
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": APP_NAME, "version": "0.4.0"}
+    return {"ok": True, "service": APP_NAME, "version": "0.5.0"}
 
 
 @app.get("/v1/models", dependencies=[Depends(authenticate)])
