@@ -10,7 +10,7 @@ OpenAI-compatible model gateway for PC clients, Android apps, and MCP tools that
 - `GET /v1/models`
 - `GET /health`
 - Bearer authentication using `GATEWAY_API_KEY`.
-- Non-streaming chat only. Use `model:"auto"` for ordered fallback across configured providers, or `"provider/model"` to select one.
+- Non-streaming chat only. Choose an explicit model ID from `GET /v1/models`. Automatic model selection is disabled. The selected model is attempted first; quota/transient failures may fall back to other configured providers.
 
 ## Two different connection methods
 
@@ -49,7 +49,7 @@ $env:OPENAI_MODELS = "gpt-4o-mini,gpt-4.1-mini"
 uvicorn gateway.app:app --host 127.0.0.1 --port 8080
 ```
 
-For API-only use, configure one or more provider keys. For GUI-only use, set `GATEWAY_API_KEY`, the selected site CDP URL, and its CSS selectors instead. The app does not auto-load a local `.env`; export variables or use a host secret manager.
+For API-only use, configure one or more provider keys. For GUI-only use, set `GATEWAY_API_KEY`, the selected site CDP URL, and its CSS selectors instead. The app does not auto-load a local `.env`; export variables or use a host secret manager. The browser tester is deployed to GitHub Pages from `index.html` after the branch is merged into `main`. Its default allowed CORS origin is `https://godofgamerz2013-ui.github.io`; set `CORS_ORIGINS` to a comma-separated list if you use a different Pages/custom domain.
 
 ## Configure a GUI browser
 
@@ -75,7 +75,7 @@ Choose one provider explicitly, e.g. `"model":"openai/gpt-4o-mini"`, `"model":"c
 For a client supporting OpenAI-compatible custom endpoints:
 - **Base URL:** `https://YOUR-HOST/v1`
 - **API key:** your gateway `GATEWAY_API_KEY`, not provider keys.
-- **Model:** `auto` or an ID from `GET /v1/models`.
+- **Model:** select an exact ID from `GET /v1/models`; `auto` is disabled.
 - **Streaming:** disabled.
 
 This is a model gateway, not an MCP server itself. If an MCP client requires MCP protocol tools and cannot accept an OpenAI-style endpoint, use an MCP-to-OpenAI adapter or a separate MCP server that calls the gateway.
@@ -106,3 +106,12 @@ Place a TLS reverse proxy (Caddy/Nginx or your host's HTTPS proxy) in front. For
 ## Limitations
 
 Non-streaming text only. Images/audio, tool/function calling, streaming, persistent usage tracking, dashboards, and exponential backoff are not implemented. Website GUI automation is experimental and selector-dependent. Verify current provider model names/API behavior before production use.
+
+
+## Browser HTML tester
+
+The static tester lives in [index.html](./index.html). After the pull request is merged to `main` and GitHub Pages is enabled with **GitHub Actions** as its build/deployment source, the Pages workflow deploys it at:
+
+`https://godofgamerz2013-ui.github.io/AI/`
+
+The tester requires you to enter your separately hosted gateway HTTPS URL, gateway key and an explicit model choice. It fetches `/v1/models` and calls `/v1/chat/completions`; the API service must be running on a persistent host and allow the Pages origin through `CORS_ORIGINS`. GitHub Actions builds/deploys the static HTML, but does not run the API server continuously.
