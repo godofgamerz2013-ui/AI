@@ -83,6 +83,8 @@ def test_auto_uses_priority_chain_and_skips_404_and_402(monkeypatch):
     monkeypatch.setenv("GOOGLE_MODELS", "gemini-test")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-deepseek-key")
     monkeypatch.setenv("DEEPSEEK_MODELS", "deepseek-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy-claude-key")
+    monkeypatch.setenv("ANTHROPIC_MODELS", "claude-test")
     calls = []
 
     async def fake_call(provider, model, payload):
