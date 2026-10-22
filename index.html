@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Unified AI Gateway · Playground</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#eef2ff;background:#090d18;--panel:#111827;--line:#283449;--muted:#9caec7;--accent:#8b9cff;--green:#72e0b0;--red:#ff8b9b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#1b2851 0,transparent 42%),#090d18;min-height:100vh}
+main{max-width:1120px;margin:auto;padding:30px 18px 60px}.top{display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:24px}
+h1{font-size:clamp(28px,4vw,42px);letter-spacing:-1.5px;margin:0}.sub{color:var(--muted);margin-top:8px;line-height:1.55}
+.pill{border:1px solid #315447;color:var(--green);padding:8px 12px;border-radius:99px;font-size:12px;font-weight:700;white-space:nowrap}
+.layout{display:grid;grid-template-columns:minmax(270px,350px) minmax(0,1fr);gap:16px}
+.panel{background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 16px 45px #0002}
+h2{font-size:16px;margin:0 0 16px}.field{display:flex;flex-direction:column;gap:7px;margin-bottom:15px}label{font-size:12px;color:#b9c7dd;font-weight:700;letter-spacing:.2px}
+input,select,textarea{font:inherit;color:#f6f8ff;background:#0b1220;border:1px solid #34425a;border-radius:10px;padding:11px 12px;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #8b9cff22}
+textarea{min-height:100px;resize:vertical;line-height:1.5}.help{font-size:12px;color:var(--muted);line-height:1.5}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px}
+button{border:0;border-radius:10px;padding:11px 15px;font:inherit;font-weight:750;cursor:pointer;background:var(--accent);color:#10152a}
+button.secondary{background:#202b40;color:#e5edff;border:1px solid #35435b}button:disabled{opacity:.5;cursor:wait}
+.status{padding:11px 12px;border-radius:10px;background:#0b1220;border:1px solid var(--line);font-size:12px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere;margin-top:12px}
+.status.good{color:var(--green);border-color:#315447}.status.bad{color:var(--red);border-color:#603440}
+.notice{padding:12px;border:1px solid #4b4329;background:#201d15;border-radius:12px;color:#e8d9a5;font-size:12px;line-height:1.55;margin-bottom:16px}
+.chat{display:flex;flex-direction:column;min-height:600px}.chathead{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px}
+.messages{display:flex;flex-direction:column;gap:14px;flex:1;padding:18px 0;min-height:300px}.empty{margin:auto;text-align:center;color:var(--muted);max-width:340px;line-height:1.6}
+.message{border:1px solid var(--line);border-radius:14px;padding:13px 14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;font-size:14px}.message.user{background:#19233a;margin-left:8%}.message.assistant{background:#0c1421;margin-right:5%}.role{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:7px}
+.composer{border-top:1px solid var(--line);padding-top:15px}.composer textarea{min-height:90px}.foot{color:#71829c;font-size:11px;line-height:1.6;margin-top:18px}
+a{color:#aab8ff}.tiny{font-size:11px;color:var(--muted)}.inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media(max-width:800px){.layout{grid-template-columns:1fr}.chat{min-height:480px}main{padding-top:20px}.panel{padding:16px}}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div><h1>Unified AI <span style="color:var(--accent)">Playground</span></h1><div class="sub">Choose the exact AI model you want. Test your gateway from the browser.</div></div>
+    <div class="pill">OPENAI-COMPATIBLE TESTER</div>
+  </header>
+  <div class="notice"><b>Important:</b> this is a static web tester hosted by GitHub Pages. It calls your separately running gateway URL; GitHub Actions is not an always-on API server. Use HTTPS for the gateway and never expose a browser CDP port publicly. Your gateway key stays in this page's memory and is not saved.</div>
+  <div class="layout">
+    <aside class="panel">
+      <h2>Connection & model</h2>
+      <div class="field"><label for="endpoint">GATEWAY BASE URL</label><input id="endpoint" type="url" placeholder="https://your-gateway.example.com/v1" autocomplete="url"><div class="help">Enter the base URL ending in <code>/v1</code>. Example: <code>https://host.example/v1</code>.</div></div>
+      <div class="field"><label for="apikey">GATEWAY API KEY</label><input id="apikey" type="password" placeholder="Your GATEWAY_API_KEY" autocomplete="off"><div class="help">Held in page memory only. Do not use this tester on a shared computer.</div></div>
+      <div class="field"><label for="model">SELECT MODEL — REQUIRED</label><select id="model"><option value="">Connect and load models first…</option></select><div class="help">No automatic model choice. Select the exact provider/model. If that provider hits a recognized quota error, the gateway may try another configured provider.</div></div>
+      <div class="actions"><button id="load" type="button">Connect & load models</button><button id="health" class="secondary" type="button">Test health</button></div>
+      <div id="connStatus" class="status" role="status">Not connected. Enter your gateway URL and key, then load models.</div>
+      <div class="foot">Routes used: <code>GET /v1/models</code>, <code>GET /health</code>, <code>POST /v1/chat/completions</code>. A gateway needs CORS enabled for this Pages origin.</div>
+    </aside>
+    <section class="panel chat">
+      <div class="chathead"><div><h2 style="margin:0 0 5px">Chat test</h2><div id="chosen" class="tiny">No model selected</div></div><button id="clear" class="secondary" type="button">Clear chat</button></div>
+      <div id="messages" class="messages"><div class="empty">Select a model, type a prompt, and test your gateway. Replies appear here.</div></div>
+      <form id="chatForm" class="composer">
+        <div class="field"><label for="prompt">YOUR MESSAGE</label><textarea id="prompt" placeholder="Ask the selected model something…" required></textarea></div>
+        <div class="inline"><button id="send" type="submit">Send test prompt</button><span id="requestStatus" class="tiny">Ready when connected.</span></div>
+      </form>
+    </section>
+  </div>
+  <div class="foot">Project: <a href="https://github.com/godofgamerz2013-ui/AI" target="_blank" rel="noreferrer">godofgamerz2013-ui/AI</a> · <a href="https://github.com/godofgamerz2013-ui/AI/actions" target="_blank" rel="noreferrer">GitHub Actions</a> · This page does not proxy requests or store chat history.</div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let availableModels = [];
+  let busy = false;
+  const base = () => {
+    const raw = $("endpoint").value.trim().replace(/\/+$/, "");
+    if (!raw) throw new Error("Enter your gateway base URL first.");
+    let url;
+    try { url = new URL(raw); } catch { throw new Error("Gateway URL is invalid."); }
+    if (!["https:", "http:"].includes(url.protocol)) throw new Error("Use an HTTP(S) gateway URL.");
+    if (location.protocol === "https:" && url.protocol !== "https:" && !["localhost","127.0.0.1"].includes(url.hostname)) throw new Error("A deployed HTTPS page requires an HTTPS gateway URL (mixed content is blocked).");
+    return raw.endsWith("/v1") ? raw : raw + "/v1";
+  };
+  const authHeaders = () => {
+    const key = $("apikey").value.trim();
+    if (!key) throw new Error("Enter the gateway API key.");
+    return {"Authorization":"Bearer " + key,"Content-Type":"application/json"};
+  };
+  const status = (id, text, kind="") => { const e=$(id);e.textContent=text;e.className="status"+(kind?" "+kind:""); };
+  const selected = () => $("model").value;
+  const updateChosen = () => { $("chosen").textContent = selected() || "No model selected"; };
+  const addMessage = (role, content) => {
+    const empty = $("messages").querySelector(".empty"); if (empty) empty.remove();
+    const wrap = document.createElement("div"); wrap.className="message "+role;
+    const label = document.createElement("div"); label.className="role"; label.textContent=role==="user"?"You":"Assistant";
+    const body = document.createElement("div"); body.textContent=content;
+    wrap.append(label,body); $("messages").append(wrap); $("messages").scrollTop=$("messages").scrollHeight;
+    return body;
+  };
+  async function request(path, options={}) {
+    const response = await fetch(base()+path, { ...options, headers:{...authHeaders(),...(options.headers||{})} });
+    const text = await response.text();
+    let data; try { data=JSON.parse(text); } catch { data={detail:text || response.statusText}; }
+    if (!response.ok) {
+      const detail = typeof data.detail==="string" ? data.detail : JSON.stringify(data.detail || data);
+      throw new Error("HTTP "+response.status+": "+detail);
+    }
+    return data;
+  }
+  $("load").addEventListener("click", async () => {
+    if(busy)return; busy=true; $("load").disabled=true;
+    try {
+      const data=await request("/models");
+      availableModels=(data.data||[]).map(x=>x.id).filter(id=>id && id!=="auto");
+      const select=$("model"); select.replaceChildren();
+      const placeholder=document.createElement("option"); placeholder.value="";placeholder.textContent="— Select a model —";select.append(placeholder);
+      for(const id of availableModels){const opt=document.createElement("option");opt.value=id;opt.textContent=id;select.append(opt);}
+      if(!availableModels.length) throw new Error("No explicit models returned. Configure provider keys or GUI CDP endpoints on the gateway.");
+      status("connStatus","Connected. Loaded "+availableModels.length+" model(s). Choose one explicitly.","good");
+      $("requestStatus").textContent="Model list loaded.";
+    } catch(e) { status("connStatus",e.message,"bad"); }
+    finally {busy=false;$("load").disabled=false;updateChosen();}
+  });
+  $("health").addEventListener("click", async () => {
+    try {
+      const raw=$("endpoint").value.trim().replace(/\/+$/,"");
+      if(!raw)throw new Error("Enter your gateway URL first.");
+      const origin=new URL(raw).origin;
+      const response=await fetch(origin+"/health");
+      const data=await response.json();
+      if(!response.ok)throw new Error("Health endpoint returned HTTP "+response.status);
+      status("connStatus","Health OK: "+(data.service||"gateway")+" · "+(data.version||"version unknown"),"good");
+    } catch(e) {status("connStatus",e.message+" (The gateway must allow this page via CORS.)","bad");}
+  });
+  $("model").addEventListener("change",updateChosen);
+  $("clear").addEventListener("click",()=>{$("messages").replaceChildren();const e=document.createElement("div");e.className="empty";e.textContent="Chat cleared. Your previous prompts are no longer shown on this page."; $("messages").append(e);});
+  $("chatForm").addEventListener("submit",async ev=>{
+    ev.preventDefault(); if(busy)return;
+    const model=selected(), prompt=$("prompt").value.trim();
+    if(!model){status("connStatus","Select an explicit model first. Automatic model selection is disabled in this tester.","bad");return;}
+    if(!prompt)return;
+    busy=true;$("send").disabled=true;$("load").disabled=true;$("requestStatus").textContent="Waiting for selected model…";
+    addMessage("user",prompt);$("prompt").value="";
+    const reply=addMessage("assistant","Waiting for response…");
+    try {
+      const data=await request("/chat/completions",{method:"POST",body:JSON.stringify({model,messages:[{role:"user",content:prompt}],stream:false})});
+      const answer=data.choices?.[0]?.message?.content;
+      if(typeof answer!=="string")throw new Error("Gateway returned no text message.");
+      reply.textContent=answer;
+      const via=data.gateway?.provider ? " · served by "+data.gateway.provider : "";
+      $("requestStatus").textContent="Success"+via;
+      status("connStatus","Request completed using selected model: "+model+via,"good");
+    } catch(e) {reply.textContent="Request failed: "+e.message;$("requestStatus").textContent="Request failed";status("connStatus",e.message,"bad");}
+    finally {busy=false;$("send").disabled=false;$("load").disabled=false;}
+  });
+})();
+</script>
+</body>
+</html>
