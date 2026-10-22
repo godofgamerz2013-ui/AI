@@ -10,15 +10,15 @@ OpenAI-compatible model gateway for PC clients, Android apps, and MCP tools that
 - `GET /v1/models`
 - `GET /health`
 - Bearer authentication using `GATEWAY_API_KEY`.
-- Non-streaming chat only. Choose an explicit model ID from `GET /v1/models`. Automatic model selection is disabled. The selected model is attempted first; quota/transient failures may fall back to other configured providers.
+- Non-streaming chat only. `model: "auto"` starts the ordered fallback chain; explicit provider/model IDs start at that provider and can fall back on upstream failures. Default order: GPT → Gemini → DeepSeek → Claude → OpenRouter → LocalAI. Only configured providers are tried.
 
 ## Two different connection methods
 
 ### 1. Official/server API adapters (recommended for stability)
 
-Implemented adapters: OpenAI, Google's OpenAI-compatible Gemini API endpoint, OpenRouter, Groq, Together AI, Mistral, and Anthropic's Messages API (mapped into a Chat Completions-shaped response). Configure developer API keys; a consumer chat website subscription is not the same thing as API access.
+Implemented API adapters: OpenAI GPT, Google's OpenAI-compatible Gemini endpoint, DeepSeek, Anthropic Claude Messages API (mapped into a Chat Completions-shaped response), OpenRouter, LocalAI (OpenAI-compatible, self-hosted), Groq, Together AI, and Mistral. Configure developer API keys; a consumer chat website subscription is not the same thing as API access.
 
-Fallback tries the next configured provider on HTTP 429, common 5xx/timeouts, selected quota-like 400/402/403 errors, and GUI responses that contain configured quota-like phrases. Providers have different error formats; automatic detection is heuristic and not guaranteed to catch every billing/quota state.
+Fallback is attempted on upstream authentication errors, rate limits, billing/payment failures, missing models, timeouts, and server errors. Provider responses differ, so no fallback system can fix an exhausted quota or invalid model automatically; it only tries the next configured backend. Use `model: "auto"` when you want the gateway to begin at GPT rather than at a specific selected provider.
 
 ### 2. Website GUI adapters (experimental; separate from APIs)
 
@@ -115,3 +115,36 @@ The static tester lives in [index.html](./index.html). After the pull request is
 `https://godofgamerz2013-ui.github.io/AI/`
 
 The tester requires you to enter your separately hosted gateway HTTPS URL, gateway key and an explicit model choice. It fetches `/v1/models` and calls `/v1/chat/completions`; the API service must be running on a persistent host and allow the Pages origin through `CORS_ORIGINS`. GitHub Actions builds/deploys the static HTML, but does not run the API server continuously.
+
+
+## Ordered fallback: GPT → Gemini → DeepSeek → Claude → OpenRouter → LocalAI
+
+The dashboard includes an `auto` model option. Send a request with `"model":"auto"` and the gateway tries configured providers in this order:
+
+1. `openai` — GPT, using `OPENAI_API_KEY`
+2. `google` — Gemini, using `GOOGLE_API_KEY`
+3. `deepseek` — DeepSeek, using `DEEPSEEK_API_KEY`
+4. `anthropic` — Claude API, using `ANTHROPIC_API_KEY`
+5. `openrouter` — OpenRouter, using `OPENROUTER_API_KEY`
+6. `localai` — LocalAI, using a local/self-hosted OpenAI-compatible endpoint
+
+The order is configurable with `PROVIDER_FALLBACK_ORDER`. A provider with no configured key is skipped. Error status and provider attempts are included in the final error response if all candidates fail. Provider presence in the dashboard does not mean credits are available; GPT's 429 usually indicates rate/quota exhaustion, and HTTP 402 from paid APIs generally indicates billing/credits/payment. A 404 can indicate an unavailable model ID or endpoint version.
+
+## Install LocalAI as the final fallback
+
+LocalAI is **a separate model server**, not a package that can run inside the Vercel serverless function. The repo now includes `docker-compose.localai.yml` and `.env.localai.example` for a persistent Linux VPS/PC. Official project: [mudler/LocalAI](https://github.com/mudler/LocalAI), [container install docs](https://localai.io/installation/containers/), [quickstart](https://localai.io/basics/getting_started/).
+
+On the persistent host:
+
+```bash
+git clone https://github.com/godofgamerz2013-ui/AI.git
+cd AI
+cp .env.localai.example .env.localai
+# Edit .env.localai: set a long random GATEWAY_API_KEY and LOCALAI_API_KEY,
+# and add the real cloud API keys you want the VPS gateway to use.
+docker compose --env-file .env.localai -f docker-compose.localai.yml up -d --build
+```
+
+The compose stack starts LocalAI with the `qwen3-4b` gallery model and starts the gateway on `127.0.0.1:8081`. First startup downloads model/backend files and may take several minutes and substantial disk/RAM; wait for health checks to finish. The LocalAI API stays inside the Docker network and is protected with `LOCALAI_API_KEY`. Check installed model IDs from LocalAI's `/v1/models` endpoint (reachable from inside the container network) and adjust `LOCALAI_MODELS` to the exact name if needed.
+
+For remote clients, put a TLS reverse proxy (such as Caddy/Nginx) in front of port 8081 or use a private VPN. Do not directly expose unauthenticated LocalAI. If keeping the gateway API on Vercel instead of the combined compose stack, `LOCALAI_BASE_URL` must be an HTTPS/private-network endpoint reachable from Vercel; `http://127.0.0.1:8080` in Vercel would refer to the Vercel function sandbox, not your PC or VPS. I cannot start this container on your VPS without access to that host, so the code and reproducible runtime stack are committed, but LocalAI must be launched on a machine you control.
